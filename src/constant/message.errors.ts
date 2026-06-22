@@ -1,0 +1,104 @@
+export const ErrorMessages = {
+  // =========================
+  // PUBLIC / COMMON
+  // =========================
+  PUBLIC: {
+    IS_NOT_EMPTY: 'FIELDS_ARE_REQUIRED',
+    LENGTH: (min: string | number, max: string | number) =>
+      `LENGTH_BETWEEN-${min}_AND_${max}`,
+    ROLE: 'INVALID_ROLE',
+    TOO_SHORT: 'VALUE_TOO_SHORT',
+    TOO_LONG: 'VALUE_TOO_LONG',
+    MANY_REQUEST: 'TOO_MANY_REQUESTS',
+    SOMETHING_WRONG: 'SOMETHING_WENT_WRONG',
+    PASSWORD_WEAK: 'WEAK_PASSWORD',
+    NOT_FOUND: 'NOT_FOUND',
+    INVALID_INPUT: 'INVALID_INPUT',
+    OPERATION_FAILED: 'OPERATION_FAILED',
+    YOU_CANNOT_PERFORM_THIS_OPERATION: 'YOU_CANNOT_PERFORM_THIS_OPERATION',
+  },
+
+  // =========================
+  // TYPE VALIDATION
+  // =========================
+  TYPE: {
+    NUMBER: {
+      IS_NUMBER: 'NOT_A_NUMBER',
+      IS_INT: 'NOT_AN_INTEGER',
+      MIN: (min: number) => `MIN_VALUE-${min}`,
+      MAX: (max: number) => `MAX_VALUE-${max}`,
+      POSITIVE: 'VALUE_MUST_BE_POSITIVE',
+      NEGATIVE: 'VALUE_MUST_BE_NEGATIVE',
+    },
+
+    STRING: {
+      IS_STRING: 'NOT_A_STRING',
+      EMPTY: 'STRING_CANNOT_BE_EMPTY',
+    },
+
+    BOOLEAN: {
+      IS_BOOLEAN: 'NOT_A_BOOLEAN',
+    },
+
+    ARRAY: {
+      IS_ARRAY: 'NOT_A_ARRAY',
+      ARRAY_UNIQUE: 'ELEMENT_ARRAY_MUST_BE_UNIQUE',
+      IS_ENUM: (arr: any[]) => `IS_ENUM-${arr.join('_')}`,
+      LIST_MUST_HAVE_VALUE: 'LIST_MUST_HAVE_VALUE',
+      ARRAY_MIN_LENGTH: (min: number) => `ARRAY_MIN_LENGTH-${min}`,
+      ARRAY_MAX_LENGTH: (max: number) => `ARRAY_MAX_LENGTH-${max}`,
+    },
+
+    ENUM: (arr: any[]) => `VALUE_NOT_IN_ENUM-${arr.join('_')}`,
+  },
+
+  // =========================
+  // AUTH
+  // =========================
+  AUTH: {
+    INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+    TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+    UNAUTHORIZED: 'UNAUTHORIZED_ACCESS',
+    NO_PERMISSION: 'INSUFFICIENT_PERMISSIONS',
+    INVALID_PASSWORD: 'INVALID_PASSWORD',
+    PASSWORD_OR_EMAIL_INCORRECT: 'INVALID_EMAIL_OR_PASSWORD',
+    TOKEN_INVALID: 'INVALID_TOKEN',
+    LOGIN_REQUIRED: 'LOGIN_REQUIRED',
+  },
+
+  // =========================
+  // USER
+  // =========================
+  USER: {
+    ALREADY_EXISTS: 'USER_ALREADY_EXISTS',
+    NOT_FOUND: 'USER_NOT_FOUND',
+    USER_BLOCKED: 'USER_BLOCKED',
+    USER_MUST_VERIFY_THEIR_PHONE_NUMBER: 'USER_MUST_VERIFY_THEIR_PHONE_NUMBER',
+    USER_MUST_VERIFY_THEIR_EMAIL: 'USER_MUST_VERIFY_THEIR_EMAIL',
+    USER_CANNOT_HAVE_MORE_THAN_10_VEHICLES:
+      'USER_CANNOT_HAVE_MORE_THAN_10_VEHICLES',
+    VEHICLE_NOT_FOUND: 'VEHICLE_NOT_FOUND',
+  },
+
+  // =========================
+  // EMAIL
+  // =========================
+  EMAIL: {
+    INVALID_EMAIL: 'INVALID_EMAIL_FORMAT',
+    ALREADY_EXISTS: 'EMAIL_ALREADY_EXISTS',
+    NOT_FOUND: 'EMAIL_NOT_FOUND',
+    RECEIVE_AGAIN_EMAIL: 'RECEIVE_AGAIN_EMAIL',
+    INVALID_CODE: 'INVALID_CODE',
+  },
+
+  // =========================
+  // REDIS
+  // =========================
+  REDIS: {
+    MAX_MEMORY: 'REDIS_MAX_MEMORY_REACHED',
+    CONNECTION_FAILED: 'REDIS_CONNECTION_FAILED',
+    REDIS_SET_FAILED: 'REDIS_SET_FAILED',
+    REDIS_GET_FAILED: 'REDIS_GET_FAILED',
+    REDIS_DELETE_FAILED: 'REDIS_DELETE_FAILED',
+  },
+};

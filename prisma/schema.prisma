@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum DeviceType {
+  WEB
+  MOBILE
+  DESKTOP
+}
+
+model User {
+  id Int @id @default(autoincrement())
+
+  name     String
+  lastname String
+  email    String @unique
+
+  hashedPassword String
+
+  lastLoginAt DateTime?
+
+  auditLogs       AuditLogs[]
+  sessions        AuthSession[]
+  loginSecurities LoginSecurity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuthSession {
+  id String @id
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshHash String
+
+  deviceType DeviceType
+  deviceName String?
+
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+}
+
+model AuditLogs {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User? @relation(references: [id], fields: [userId])
+
+  action String
+
+  ipAddress String?
+
+  metadata String?
+
+  createdAt DateTime @default(now())
+}
+
+model LoginSecurity {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User? @relation(references: [id], fields: [userId])
+
+  failedCount Int @default(0)
+
+  lockedUntil DateTime?
+
+  strike Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}
