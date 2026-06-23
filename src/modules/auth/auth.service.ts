@@ -1,14 +1,22 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { LoginPasswordDto } from './dto/body.dto';
+import {
+  LoginPasswordDto,
+  RefreshTokenDto,
+  RegisterBodyDto,
+} from './dto/body.dto';
 import { ErrorMessages } from 'src/constant/message.errors';
 import { bcryptCompare, bcryptHash } from 'src/common/utils/bcrypt';
 import { randomUUID } from 'crypto';
-import { JwtPayload } from './type/jwt-payload.type';
-import { DeviceType } from 'generated/prisma';
+import { JwtPayload, RefreshJwtPayload } from './type/jwt-payload.type';
+import { AuthSession, DeviceType } from 'generated/prisma';
 
 @Injectable()
 export class AuthService {
@@ -44,9 +52,178 @@ export class AuthService {
       sessionId,
       device,
       email: user.email,
+      enforceSessionLimit: true,
     });
 
     return tokens;
+  }
+
+  async register({
+    device,
+    email,
+    firstname,
+    lastname,
+    password,
+  }: RegisterBodyDto) {
+    const userExist = await this.prismaService.user.findUnique({
+      where: { email },
+    });
+
+    if (userExist) {
+      throw new HttpException(ErrorMessages.USER.ALREADY_EXISTS, 403);
+    }
+
+    const hashedPassword = await bcryptHash(password);
+
+    const user = await this.prismaService.$transaction(async (tx) => {
+      return tx.user.create({
+        data: { email, hashedPassword, lastname, firstname },
+      });
+    });
+
+    const sessionId = randomUUID();
+    const tokens = await this.createSession({
+      userId: user.id,
+      sessionId,
+      device,
+      email: user.email,
+      enforceSessionLimit: false,
+    });
+
+    return tokens;
+  }
+
+  async changePassword({
+    oldPassword,
+    newPassword,
+    userInfo,
+  }: {
+    userInfo: JwtPayload;
+    oldPassword: string;
+    newPassword: string;
+  }) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userInfo.sub, email: userInfo.email },
+    });
+
+    if (!user) {
+      throw new HttpException(ErrorMessages.USER.NOT_FOUND, 404);
+    }
+
+    const comparePassword = await bcryptCompare(
+      oldPassword,
+      user.hashedPassword,
+    );
+
+    if (!comparePassword) {
+      throw new UnauthorizedException(ErrorMessages.AUTH.INCORRECT_PASSWORD);
+    }
+
+    const isSamePassword = await bcryptCompare(
+      newPassword,
+      user.hashedPassword,
+    );
+
+    if (isSamePassword) {
+      throw new HttpException(
+        ErrorMessages.AUTH.PASSWORD_MUST_BE_DIFFERENT,
+        400,
+      );
+    }
+
+    const hashedPassword = await bcryptHash(newPassword);
+
+    let sessionsToRemoveFromRedis: string[] = [];
+
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { hashedPassword },
+      });
+      const sessions = await tx.authSession.findMany({
+        where: { userId: user.id },
+      });
+      await tx.authSession.deleteMany({ where: { userId: user.id } });
+      sessionsToRemoveFromRedis = sessions.map((session) => session.id);
+    });
+
+    await Promise.all(
+      sessionsToRemoveFromRedis.map((oldSessionId) =>
+        this.redisService.delete(
+          this.redisService.redisKeys({
+            userId: user.id,
+            sessionId: oldSessionId,
+          }),
+        ),
+      ),
+    );
+    return 'ok';
+  }
+
+  async refresh({
+    device,
+    email,
+    sessionId,
+    refreshToken,
+    sub,
+  }: RefreshTokenDto & RefreshJwtPayload) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: sub, email },
+    });
+
+    if (!user) {
+      throw new HttpException(ErrorMessages.USER.NOT_FOUND, 404);
+    }
+
+    await this.removeSession({ userId: sub, sessionId });
+
+    const newSessionId = randomUUID();
+    const tokens = await this.createSession({
+      device,
+      email,
+      sessionId: newSessionId,
+      userId: sub,
+      enforceSessionLimit: true,
+    });
+
+    return tokens;
+  }
+
+  async logout({ email, sessionId, sub }: JwtPayload) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: sub, email },
+    });
+
+    if (!user) {
+      throw new HttpException(ErrorMessages.USER.NOT_FOUND, 404);
+    }
+
+    await this.removeSession({ sessionId, userId: sub });
+    return 'ok';
+  }
+
+  async logoutAll({ email, sessionId, sub }: JwtPayload) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: sub, email },
+    });
+
+    if (!user) {
+      throw new HttpException(ErrorMessages.USER.NOT_FOUND, 404);
+    }
+
+    const sessions = await this.prismaService.authSession.findMany({
+      where: { userId: sub },
+    });
+
+    const sessionIds = sessions.map((session) => session.id);
+
+    await Promise.all(
+      sessionIds.map((sessionId) =>
+        this.removeSession({ userId: sub, sessionId }),
+      ),
+    );
+
+    return 'ok';
   }
 
   //////////////////
@@ -58,11 +235,13 @@ export class AuthService {
     sessionId,
     device,
     email,
+    enforceSessionLimit,
   }: {
     userId: number;
     sessionId: string;
     device: DeviceType;
     email: string;
+    enforceSessionLimit?: boolean;
   }) {
     // remove expire session
     await this.removeExpiredSessions(userId);
@@ -84,34 +263,39 @@ export class AuthService {
     const sessionsToRemoveFromRedis: string[] = [];
     const tokens = await this.prismaService.$transaction(
       async (tx) => {
-        const sessions = await tx.authSession.count({
-          where: { userId },
-        });
-
-        if (sessions >= 5) {
-          const oldSession = await tx.authSession.findFirst({
+        if (enforceSessionLimit) {
+          const sessions = await tx.authSession.count({
             where: { userId },
-            orderBy: { createdAt: 'asc' },
           });
 
-          if (oldSession) {
-            // remove old session ( Session limit 5 )
-            await tx.authSession.deleteMany({
-              where: { userId, id: oldSession.id },
+          if (sessions >= 5) {
+            const oldSession = await tx.authSession.findFirst({
+              where: { userId },
+              orderBy: { createdAt: 'asc' },
             });
 
-            sessionsToRemoveFromRedis.push(oldSession.id);
+            if (oldSession) {
+              // remove old session ( Session limit 5 )
+              await tx.authSession.deleteMany({
+                where: { userId, id: oldSession.id },
+              });
+
+              sessionsToRemoveFromRedis.push(oldSession.id);
+            }
           }
         }
+        const time = new Date();
+        await tx.user.update({
+          where: { id: userId },
+          data: { lastLoginAt: time },
+        });
 
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
-
+        time.setDate(time.getDate() + 7);
         await tx.authSession.create({
           data: {
             id: sessionId,
             userId,
-            expiresAt,
+            expiresAt: time,
             deviceType: device,
             refreshHash: hashedRefreshToken,
           },
@@ -122,14 +306,15 @@ export class AuthService {
       // For PostgreSQL, consider using:
       // { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
-
-    await Promise.all(
-      sessionsToRemoveFromRedis.map((oldSessionId) =>
-        this.redisService.delete(
-          this.redisService.redisKeys({ userId, sessionId: oldSessionId }),
+    if (enforceSessionLimit) {
+      await Promise.all(
+        sessionsToRemoveFromRedis.map((oldSessionId) =>
+          this.redisService.delete(
+            this.redisService.redisKeys({ userId, sessionId: oldSessionId }),
+          ),
         ),
-      ),
-    );
+      );
+    }
 
     await this.redisService.set(
       this.redisService.redisKeys({ userId, sessionId }),

@@ -48,13 +48,6 @@ export class ChangePasswordDto {
   @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
   @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
   newPassword: string;
-
-  @IsEnum(DeviceType, {
-    message: ErrorMessages.TYPE.ARRAY.IS_ENUM(Object.values(DeviceType)),
-  })
-  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
-  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
-  device: DeviceType;
 }
 
 export class RefreshTokenDto {
@@ -64,4 +57,37 @@ export class RefreshTokenDto {
   @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
   @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
   device: DeviceType;
+}
+
+export class RegisterBodyDto {
+  @IsEnum(DeviceType, {
+    message: ErrorMessages.TYPE.ARRAY.IS_ENUM(Object.values(DeviceType)),
+  })
+  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
+  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
+  device: DeviceType;
+
+  @Length(2, 50, { message: ErrorMessages.PUBLIC.LENGTH(2, 50) })
+  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
+  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
+  firstname: string;
+
+  @Length(2, 50, { message: ErrorMessages.PUBLIC.LENGTH(2, 50) })
+  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
+  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
+  lastname: string;
+
+  @IsEmail({}, { message: ErrorMessages.EMAIL.INVALID_EMAIL })
+  @Length(6, 254, { message: ErrorMessages.PUBLIC.LENGTH(6, 254) })
+  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
+  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
+  email: string;
+
+  @Matches(/^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$ %^&*-]).{8,}$/, {
+    message: ErrorMessages.AUTH.INVALID_PASSWORD,
+  })
+  @Length(8, 50, { message: ErrorMessages.PUBLIC.LENGTH(8, 50) })
+  @IsString({ message: ErrorMessages.TYPE.STRING.IS_STRING })
+  @IsNotEmpty({ message: ErrorMessages.PUBLIC.IS_NOT_EMPTY })
+  password: string;
 }
