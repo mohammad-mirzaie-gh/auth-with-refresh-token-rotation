@@ -175,6 +175,20 @@ export class AuthService {
       throw new HttpException(ErrorMessages.USER.NOT_FOUND, 404);
     }
 
+    const session = await this.prismaService.authSession.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException();
+    }
+
+    const valid = await bcryptCompare(refreshToken, session.refreshHash);
+
+    if (!valid) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
     await this.removeSession({ userId: sub, sessionId });
 
     const newSessionId = randomUUID();
@@ -318,7 +332,7 @@ export class AuthService {
 
     await this.redisService.set(
       this.redisService.redisKeys({ userId, sessionId }),
-      hashedRefreshToken,
+      '1',
       7 * 24 * 60 * 60,
     );
     return tokens;

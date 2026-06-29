@@ -1,14 +1,16 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from '../type/jwt-payload.type';
-import { refreshTokenCookies } from '../utils/cookie.title';
 import { RedisService } from 'src/modules/redis/redis.service';
 import { bcryptCompare } from 'src/common/utils/bcrypt';
-import { ErrorMessages } from 'src/constant/message.errors';
+import { refreshTokenCookies } from '../utils/cookie.title';
 
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
@@ -17,14 +19,13 @@ export class JwtRefreshStrategy extends PassportStrategy(
 ) {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     configService: ConfigService,
-    private redisService: RedisService,
-    private prismaService: PrismaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (req: Request) => req.cookies?.[refreshTokenCookies],
+        (req: Request) => req?.cookies?.[refreshTokenCookies],
       ]),
       secretOrKey: configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
       ignoreExpiration: false,
@@ -32,51 +33,69 @@ export class JwtRefreshStrategy extends PassportStrategy(
     });
   }
 
-  async validate(req: Request, payload: JwtPayload) {
-    const refreshToken =
+  private extractToken(req: Request): string | null {
+    return (
       ExtractJwt.fromAuthHeaderAsBearerToken()(req) ||
-      req.cookies?.[refreshTokenCookies];
+      req?.cookies?.[refreshTokenCookies] ||
+      null
+    );
+  }
+
+  async validate(req: Request, payload: JwtPayload) {
+    const refreshToken = this.extractToken(req);
+
     if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token is missing');
+      throw new UnauthorizedException('Refresh token missing');
     }
 
-    let refreshTokenHashed: string;
+    const redisKey = this.redis.redisKeys({
+      userId: payload.sub,
+      sessionId: payload.sessionId,
+    });
 
-    const refreshTokenInRedis = await this.redisService.get(
-      this.redisService.redisKeys({
-        userId: payload.sub,
-        sessionId: payload.sessionId,
-      }),
-    );
+    // ✅ 1. check session existence in Redis
+    const exists = await this.redis.get(redisKey);
 
-    const session = await this.prisma.authSession.findFirst({
-      where: {
-        id: payload.sessionId,
-        userId: payload.sub,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
-      include: {
-        user: true,
+    if (!exists) {
+      throw new UnauthorizedException('Session expired');
+    }
+
+    // ✅ 2. get refresh hash from DB
+    const session = await this.prisma.authSession.findUnique({
+      where: { id: payload.sessionId },
+      select: {
+        refreshHash: true,
+        userId: true,
+        expiresAt: true,
       },
     });
 
-    if (!session || !session.user) {
-      throw new UnauthorizedException('Invalid or expired refresh session');
+    if (
+      !session ||
+      session.userId !== payload.sub ||
+      session.expiresAt <= new Date()
+    ) {
+      throw new UnauthorizedException('Invalid refresh session');
     }
 
-    const isValid = await bcryptCompare(refreshToken, refreshTokenHashed);
+    // ✅ 3. compare refresh token
+    const isValid = await bcryptCompare(refreshToken, session.refreshHash);
 
     if (!isValid) {
-      await this.removeSession({ userId: sub, sessionId });
+      // revoke session (possible token theft)
+      await this.prisma.authSession.delete({
+        where: { id: payload.sessionId },
+      });
+
+      await this.redis.delete(redisKey);
+
       throw new UnauthorizedException('Invalid refresh token');
     }
 
     return {
-      sub: session.user.id,
-      email: session.user.email,
-      sessionId: session.id,
+      sub: payload.sub,
+      email: payload.email,
+      sessionId: payload.sessionId,
       refreshToken,
     };
   }

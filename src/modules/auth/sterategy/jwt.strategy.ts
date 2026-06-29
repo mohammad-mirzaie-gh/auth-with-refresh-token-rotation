@@ -2,13 +2,13 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from 'src/modules/redis/redis.service';
 import { JwtPayload } from '../type/jwt-payload.type';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     configService: ConfigService,
   ) {
     super({
@@ -19,27 +19,21 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
-    const session = await this.prisma.authSession.findFirst({
-      where: {
-        id: payload.sessionId,
-        userId: payload.sub,
-        expiresAt: {
-          gt: new Date(),
-        },
-      },
-      include: {
-        user: true,
-      },
+    const redisKey = this.redis.redisKeys({
+      userId: payload.sub,
+      sessionId: payload.sessionId,
     });
 
-    if (!session || !session.user) {
-      throw new UnauthorizedException('Invalid or expired session');
+    const exists = await this.redis.get(redisKey);
+
+    if (!exists) {
+      throw new UnauthorizedException('Session expired or invalid');
     }
 
     return {
-      sub: session.user.id,
-      email: session.user.email,
-      sessionId: session.id,
+      sub: payload.sub,
+      email: payload.email,
+      sessionId: payload.sessionId,
     };
   }
 }
